@@ -1,0 +1,81 @@
+// 1. Activar Pro Tools
+sf.ui.proTools.appActivate();
+
+// 2. Obtener la ruta del clip seleccionado en el Timeline
+let path = sf.app.proTools.getFileLocation({
+    fileFilters: ['SelectedClipsTimeline'],
+}).fileLocations[0].path;
+
+// 3. Verificar si el archivo existe
+if (!sf.file.exists({ path: path }).exists) {
+    throw `No se encontró el archivo en la ruta: ${path}`;
+}
+
+// 4. Registrar la ruta en el Log de SoundFlow
+log(`La ruta del archivo seleccionado es: ${path}`);
+
+// 5. Extraer la carpeta de origen del archivo seleccionado
+let sourceFolder = path.substring(0, path.lastIndexOf('/'));
+log(`El archivo original está en: ${sourceFolder}`);
+
+// Ruta del ejecutable de Demucs dentro del entorno virtual
+let demucsPath = "/Users/victorherrera/Nextcloud2/Scripts/Demucs/demucs_env/bin/demucs";
+
+// Carpeta de salida personalizada (opcional)
+let outputFolder = "/Users/victorherrera/Nextcloud2/Scripts/Demucs/output/";
+
+// Construir el comando con la ruta del archivo y especificar la carpeta de salida
+let demucsCommand = `${demucsPath} --two-stems vocals -o "${outputFolder}" --filename "{track}_{stem}.{ext}" "${path}"`;
+
+// Ejecutar Demucs
+let result = sf.system.exec({
+    commandLine: demucsCommand,
+    options: {
+        waitForExit: true
+    }
+});
+
+// 11. Determinar la ruta del archivo de salida "no_vocals.wav"
+let fileName = path.split('/').pop().replace(/\.[^/.]+$/, ""); // Extrae el nombre sin extensión
+let processedFilePath = `${outputFolder}/htdemucs/${fileName}_no_vocals.wav`;
+
+// 12. Verificar si el archivo se generó correctamente
+if (!sf.file.exists({ path: processedFilePath }).exists) {
+    throw `No se encontró el archivo procesado en: ${processedFilePath}`;
+}
+
+// 13. Construir la nueva ruta en la carpeta de origen
+let finalDestination = `${sourceFolder}/${fileName}_no_vocals.wav`;
+
+// 14. Copiar el archivo de salida a la carpeta de origen
+sf.file.copy({
+    sourcePath: processedFilePath,
+    destinationPath: finalDestination,
+    overwrite: true
+});
+
+// 15. Registrar la nueva ubicación y abrir la carpeta
+log(`El archivo sin voces se copió a: ${finalDestination}`);
+
+let convertedFilePath = finalDestination.replace('.wav', '_mono_48k_24b.wav');
+
+let convertCommand = `ffmpeg -i "${finalDestination}" -ac 1 -ar 48000 -sample_fmt s32p -acodec pcm_s24le "${convertedFilePath}"`;
+
+sf.system.exec({
+    commandLine: convertCommand,
+    options: { waitForExit: true }
+});
+
+// Eliminar el archivo original si no lo necesitas
+sf.file.delete({ path: finalDestination });
+
+// Renombrar el archivo convertido al original
+sf.file.rename({
+    path: convertedFilePath,
+    newPath: finalDestination
+});
+
+sf.system.exec({
+    commandLine: `open -R "${finalDestination}"`,
+    options: { waitForExit: false }
+});
